@@ -839,3 +839,15 @@ uopt promotes it into `$v1` (150 to 17 rows).
 (5) an `else if (club == 7) ... else` chain, and `(u8)` on the `get_g_zyotai_s(6)` result for one
 ring slot (FAKE).
 Details and negatives: `drafts/T-25139/KANGEI/func_801327DC/NOTES.md`.
+## T-25130: MASTER func_801326B4
+
+[[tickets/T-25130-w8-MASTER-80132140]] matches `func_801326B4` (3264 bytes, default C, about 55 minutes) from the T-24517 body (`drafts/T-24517/later/func_801326B4.c`), 113 rows here and 102 once `func_800847B8` is called as an implicit int. The first divergence was the case 4 switch: uopt copy-propagated the raw `sel` local into the global D_800E6374 and made `shr(D.h, 12)` one PRE range in `$v1` (computed at the switch, inserted after each reload in the call arms), where the original recomputes both shifts in ugen temporaries. What closed it:
+
+- **Different expressions for the two shifts.** The switch is `(u16) D_800E6280.unk_0F4.h >> 0xC` (`shr(cvt(D.h))`) and the join test reads a u32 copy, `mode = D_800E6280.unk_0F4.h; if ((mode >> 0xC) != 3)` (`shr(D.h)` after copy propagation). Nothing is shared, so nothing is PRE'd.
+- **Uses in the call arms.** Six always-false tests, `if ((u32) D_800E6280.unk_0F4.h < 0) {}` after each arm call (a FAKE macro), give each arm one use with its reload; the global becomes profitable, gets `$a0` and is reloaded after each call as in the original. ugen folds the tests. Removing any one costs 229 register rows.
+- **`s32 func_800847B8();`** under the existing override pattern: a `void` view moves the case 0/1 ranges (39 rows).
+
+Negatives and the full measurement list: `drafts/T-25130/MASTER/func_801326B4/NOTES.md`.
+## T-25137: TACO func_8013B460
+
+[[tickets/T-25137-w8-TACO-8013B170]], branch w9-TACO-8013B170 (wave 9 neighbor conveyor). Matched (1328 bytes, default C, guard removed) from the T-24200 guard (cost 4: the `p->y3` store before the UV stores instead of between `lui` and `lw` of the AddPrim argument). Stock `as1 -R -xbbdbg 8` plus the recompiled as1 show the per-block pick order: smallest start time, larger aftercycles, larger latency, smaller hazard address (+48), smaller **source line** (+12), then the front of the ready list (released nodes go to the front, which is why one UV statement comes out v3 first). The y3 store, the UV stores and the `lui` tie on everything but line, so the original's y3 statement had a later line than the AddPrim call. IDO 5.3 gives a statement the line of its first token and gives code moved to a `goto` site the jump's line, so no plain or `goto` layout reaches it. A `#line` pair per quad (the y3 statement on AddPrim's line + 1, numbering restored after it) gives MATCH (FAKE). `funcdiff --version c` and `preprocess_draft` run `gcc -E -P` and drop the markers; the default build keeps them. Negatives and the trace recipe: drafts/T-25137/TACO/func_8013B460/NOTES.md.

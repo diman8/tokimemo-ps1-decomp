@@ -245,3 +245,19 @@ code, raise its priority: a never-true arm with one more `istr` of it, `if ((u32
 first use the arm costs two reloads and gains nothing. Store through a pointer whose own priority order does not
 change, and put the arm on an existing uopt block split so the store counts stay as they are. ETC
 `func_80132C3C`, 15 rows to 0; `drafts/T-25121/ETC/func_80132C3C/NOTES.md`.
+
+## A shift shared across a switch join, and a promoted global with reloads in the arms (T-25130)
+
+Symptom: the original reloads a halfword global into one argument register after every call in the arms of a
+switch (`lui a0; lhu a0` before each `b join`) and recomputes `srl` from it at the switch and again at the join,
+both in ugen temporaries. The draft holds the shifted value in `$v1` and puts `srl v1,a0,12` into the reload
+branch slots: uopt made the shift one PRE range (regdiff -v: an expression range with one use per occurrence and
+one def per reload arm). Fix both halves: (1) make the two shifts different expressions to uopt. Write the switch
+on the promoted read, `(u16) G.h >> 12` (`shr(cvt(G))`), and the join test on a u32 copy, `m = G.h; if ((m >> 12) != 3)`
+(`shr(G)` after copy propagation; the u32 assignment absorbs the cvt). (2) The global then has too few uses to stay
+promoted (a reload charge per arm, no use there): add an always-false test after each arm call,
+`if ((u32) G.h < 0) {}` (FAKE; ugen folds it, no code). Plain `if (G.h) {}` leaves a `beqz` before the break jump,
+and a dead `m = G.h;` is removed. MASTER `func_801326B4`, 102 rows to 0; `drafts/T-25130/MASTER/func_801326B4/NOTES.md`.
+## A store that the original schedules after the next statement's `lui` (T-25137)
+
+When independent instructions of one block tie in as1 (same start time, aftercycles and latency), the smaller source line wins, then the node released last. Read the `Node ... lineno` and `Picking node` lines of stock `as1 -R -xbbdbg 8` (capture shim in drafts/T-24900-as1/) before trying spellings: if the original's order needs a store to lose to instructions of a later statement, no statement order or one-line form reaches it under IDO 5.3. TACO `func_8013B460`: the y3 store needed a later line than the AddPrim call; a `#line` pair around the y3 statement (FAKE) closed it from cost 4. See [[as1-scheduler-rule]] and drafts/T-25137/TACO/func_8013B460/NOTES.md.
